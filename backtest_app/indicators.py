@@ -3,10 +3,10 @@ import numpy as np
 import pandas as pd
 
 def true_range(df):
-    prev = df["close"].shift(1)
+    prev=df["close"].shift(1)
     return pd.concat([df["high"]-df["low"],(df["high"]-prev).abs(),(df["low"]-prev).abs()],axis=1).max(axis=1)
 
-def wilder_rma(series, length):
+def wilder_rma(series,length):
     return series.ewm(alpha=1/length,adjust=False,min_periods=length).mean()
 
 def supertrend(df,length=10,factor=2.0):
@@ -31,39 +31,38 @@ def supertrend(df,length=10,factor=2.0):
         line.iloc[i]=fl.iloc[i] if direction.iloc[i]==1 else fu.iloc[i]
     return line,direction
 
-def add_ce_indicators(raw, config=None):
+def add_ce_indicators(raw,config=None):
     required={"timestamp","open","high","low","close"}
     missing=required-set(raw.columns)
     if missing: raise ValueError("Missing columns: "+", ".join(sorted(missing)))
     df=raw.copy()
     df["timestamp"]=pd.to_datetime(df["timestamp"],errors="coerce")
-    for c in ["open","high","low","close"]: df[c]=pd.to_numeric(df[c],errors="coerce")
+    for col in ["open","high","low","close"]: df[col]=pd.to_numeric(df[col],errors="coerce")
     df=df.dropna(subset=["timestamp","open","high","low","close"]).sort_values("timestamp").drop_duplicates("timestamp").reset_index(drop=True)
     if df.empty: raise ValueError("No valid OHLC candles.")
     if (df.high<df.low).any(): raise ValueError("Found candles where high is below low.")
-    cfg=config or {}
-    e=cfg.get("entry",{})
-    n=int(e.get("supertrend_length",10)); f=float(e.get("supertrend_factor",2))
-    df["entry_supertrend"],df["entry_st_direction"]=supertrend(df,n,f)
-    ex=cfg.get("exit",{})
-    df["exit_supertrend"],df["exit_st_direction"]=supertrend(df,int(ex.get("supertrend_length",10)),float(ex.get("supertrend_factor",2)))
-    d=df.close.diff()
-    ag=wilder_rma(d.clip(lower=0),14); al=wilder_rma(-d.clip(upper=0),14)
+    cfg=config or {}; e=cfg.get("entry",{}); x=cfg.get("exit",{})
+    df["entry_supertrend"],df["entry_st_direction"]=supertrend(df,int(e.get("supertrend_length",10)),float(e.get("supertrend_factor",2)))
+    df["exit_supertrend"],df["exit_st_direction"]=supertrend(df,int(x.get("supertrend_length",10)),float(x.get("supertrend_factor",2)))
+    rsi_len=int(e.get("rsi_length",14)); delta=df.close.diff()
+    ag=wilder_rma(delta.clip(lower=0),rsi_len); al=wilder_rma(-delta.clip(upper=0),rsi_len)
     rs=ag/al.replace(0,np.nan)
     df["rsi_14"]=100-100/(1+rs)
     df.loc[(al==0)&(ag>0),"rsi_14"]=100
-    up=df.high.diff(); down=-df.low.diff()
+    adx_len=int(e.get("adx_length",12)); up=df.high.diff(); down=-df.low.diff()
     pdm=pd.Series(np.where((up>down)&(up>0),up,0.0),index=df.index)
     mdm=pd.Series(np.where((down>up)&(down>0),down,0.0),index=df.index)
-    atr=wilder_rma(true_range(df),12)
-    pdi=100*wilder_rma(pdm,12)/atr.replace(0,np.nan)
-    mdi=100*wilder_rma(mdm,12)/atr.replace(0,np.nan)
+    atr=wilder_rma(true_range(df),adx_len)
+    pdi=100*wilder_rma(pdm,adx_len)/atr.replace(0,np.nan)
+    mdi=100*wilder_rma(mdm,adx_len)/atr.replace(0,np.nan)
     dx=100*(pdi-mdi).abs()/(pdi+mdi).replace(0,np.nan)
-    df["adx_12"]=wilder_rma(dx,12)
-    mid=df.close.rolling(20,min_periods=20).mean()
-    sd=df.close.rolling(20,min_periods=20).std(ddof=0)
-    df["bb_upper"]=mid+2*sd; df["bb_middle"]=mid; df["bb_lower"]=mid-2*sd
-    hi=df.high.rolling(14,min_periods=14).max()
-    lo=df.low.rolling(14,min_periods=14).min()
+    df["adx_12"]=wilder_rma(dx,adx_len)
+    bb_len=int(e.get("bb_length",20)); bb_factor=float(e.get("bb_factor",2))
+    mid=df.close.rolling(bb_len,min_periods=bb_len).mean()
+    sd=df.close.rolling(bb_len,min_periods=bb_len).std(ddof=0)
+    df["bb_upper"]=mid+bb_factor*sd; df["bb_middle"]=mid; df["bb_lower"]=mid-bb_factor*sd
+    wr_len=int(e.get("williams_length",14))
+    hi=df.high.rolling(wr_len,min_periods=wr_len).max()
+    lo=df.low.rolling(wr_len,min_periods=wr_len).min()
     df["williams_r_14"]=-100*(hi-df.close)/(hi-lo).replace(0,np.nan)
     return df
