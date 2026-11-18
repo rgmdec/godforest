@@ -30,6 +30,21 @@ class DhanClient:
         })
         self.timeout = timeout
 
+    def profile(self) -> dict[str, Any]:
+        """Validate token and inspect data-plan status without accessing order APIs."""
+        response = self._session.get(BASE_URL + "/profile", timeout=self.timeout)
+        if response.status_code in (401, 403):
+            raise DhanAPIError(
+                f"Dhan token invalid/expired ({response.status_code}). "
+                "Generate a fresh token and update DHAN_ACCESS_TOKEN."
+            )
+        if not response.ok:
+            raise DhanAPIError(f"Dhan profile HTTP {response.status_code}: {response.text[:500]}")
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise DhanAPIError("Dhan profile returned a non-JSON response.") from exc
+
     def _post(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
         # Only data endpoints are intentionally exposed in this client.
         if endpoint not in {"/charts/intraday", "/charts/rollingoption"}:
@@ -56,21 +71,10 @@ class DhanClient:
         return body
 
     def test_auth(self) -> bool:
-        # A small, bounded data request verifies token + data permission.
-        from datetime import date, timedelta
-        end = date.today()
-        start = end - timedelta(days=2)
-        payload = {
-            "securityId": "13",
-            "exchangeSegment": "IDX_I",
-            "instrument": "INDEX",
-            "interval": "1",
-            "oi": False,
-            "fromDate": start.strftime("%Y-%m-%d 09:15:00"),
-            "toDate": end.strftime("%Y-%m-%d 15:30:00"),
-        }
-        self._post("/charts/intraday", payload)
-        return True
+        info = self.profile()
+        if not isinstance(info, dict) or not info.get("dhanClientId"):
+            raise DhanAPIError("Dhan profile response did not contain a client ID.")
+        return info
 
     def intraday(
         self, security_id: str, exchange_segment: str, instrument: str,
@@ -99,7 +103,7 @@ class DhanClient:
             raise ValueError("expiry_flag must be WEEK or MONTH")
         if interval not in (1, 5, 15, 25, 60):
             raise ValueError("interval must be one of 1, 5, 15, 25, 60")
-        if expiry_code not in (0, 1, 2, 3):
+        if expiry_code not in (0, 1, 2):
             raise ValueError("expiry_code must be 0, 1, 2 or 3")
         payload = {
             "exchangeSegment": "NSE_FNO",
