@@ -20,7 +20,7 @@ Official docs:
 
 Add a Codespaces secret named `DHAN_ACCESS_TOKEN` containing the token generated in Dhan Web. Restart/reload the Codespace after adding a secret.
 
-For local testing only, you may create a root `.env` file (never commit it). The client reads environment variables; it does not print or persist tokens. Dhan access tokens are short-lived (24 hours under current Dhan policy), so renew the token in Dhan and update the Codespaces secret when it expires.
+For local testing only, you may create a root `.env` file (never commit it). The client reads environment variables; it does not print or persist tokens. Dhan access tokens generated from Dhan Web are valid for 24 hours. The module validates tokens using the read-only GET /profile endpoint. Renew a still-active Web-generated token using Dhan's RenewToken API if desired, or generate a new token and update the Codespaces secret. The profile response also reports dataPlan and dataValidity.
 
 The data endpoints require the Dhan Data APIs entitlement. Check the Data APIs subscription in your Dhan account.
 
