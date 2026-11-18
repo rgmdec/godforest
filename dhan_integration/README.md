@@ -6,7 +6,7 @@ This module downloads historical market data from DhanHQ into local Parquet file
 
 - Dhan's intraday historical API supports 1, 5, 15, 25 and 60-minute bars, up to the latest five years, with a maximum 90-day range per request.
 - Dhan's rolling expired-options API supports 1, 5, 15, 25 and 60-minute data, up to the latest five years, with a maximum 30-day range per request. It returns rolling ATM-relative strikes (index options up to ATM +/- 10 near expiry).
-- The requested period 2021-01-01 through 2026-11-18 is wider than a rolling five-year window. The API cannot be assumed to return all of 2021; the downloader records actual returned coverage.
+- The requested period 2021-01-01 through 2026-11-18 is wider than a rolling five-year window. The downloader clamps minute and rolling-options requests to the five-year cutoff (approximately 2021-11-18 for this run); January–mid-November 2021 minute/expired-option data cannot be assumed available.
 - **Expired futures intraday history is not available** through Dhan's intraday API. It returns active contracts only. To backtest old futures contracts, obtain a separate historical source or use daily continuous futures where appropriate.
 - Rolling ATM-relative options are not a permanent-contract archive. They are useful for research but do not guarantee every historical strike/expiry or exact contract continuity.
 
@@ -49,13 +49,15 @@ Nifty 50 index mapping is configured as security ID 13 / IDX_I / INDEX. Verify a
 Example for weekly ATM and ATM +/- 1 through +/- 10, calls and puts:
 
 ```bash
-python -m dhan_integration.cli options --from 2021-01-01 --to 2026-11-18 --interval 1 --expiry-flag WEEK --expiry-code 1 --max-strike-offset 10
+python -m dhan_integration.cli options --from 2021-01-01 --to 2026-11-18 --interval 1 --expiry-flag WEEK --max-strike-offset 10
+
+Omitting `--expiry-code` downloads expiry buckets 0 (current/near), 1 (next), and 2 (far). This can generate thousands of requests over the full period. Start with a short date range to validate access and output first.
 ```
 
 Run monthly separately if required:
 
 ```bash
-python -m dhan_integration.cli options --from 2021-01-01 --to 2026-11-18 --interval 1 --expiry-flag MONTH --expiry-code 1 --max-strike-offset 10
+python -m dhan_integration.cli options --from 2021-01-01 --to 2026-11-18 --interval 1 --expiry-flag MONTH --max-strike-offset 10
 ```
 
 Each request is split into non-overlapping 30-day windows. Both CALL and PUT are downloaded. Data is partitioned by instrument, option type, expiry flag/code and strike offset. The `strike` column returned by Dhan is the actual strike price; `strike_offset` is the ATM-relative request.
