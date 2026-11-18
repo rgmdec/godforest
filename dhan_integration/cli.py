@@ -34,7 +34,7 @@ def main():
     options = sub.add_parser("options", help="Download rolling expired Nifty options")
     common(options)
     options.add_argument("--expiry-flag", choices=("WEEK", "MONTH"), default="WEEK")
-    options.add_argument("--expiry-code", type=int, choices=(0, 1, 2), default=1)
+    options.add_argument("--expiry-code", type=int, choices=(0, 1, 2), default=None, help="0=current, 1=next, 2=far; omit to download all three")
     options.add_argument("--max-strike-offset", type=int, choices=range(0, 11), default=10)
     futures = sub.add_parser("futures", help="Download an ACTIVE Nifty futures contract only")
     common(futures)
