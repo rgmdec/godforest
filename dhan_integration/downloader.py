@@ -105,30 +105,37 @@ def download_options(
     for a, b in date_chunks(start, end_exclusive, 30):
         from_s, to_s = a.isoformat(), b.isoformat()  # API end date is non-inclusive
         for code in expiry_codes:
-          for opt_type in ("CALL", "PUT"):
-            for offset in range(-max_strike_offset, max_strike_offset + 1):
-                strike = "ATM" if offset == 0 else f"ATM{offset:+d}"
-                body = client.rolling_options(
-                    from_s, to_s, opt_type, strike, expiry_flag,
-                    code, interval,
-                )
-                data = body.get("data", {}) if isinstance(body, dict) else {}
-                side_key = "ce" if opt_type == "CALL" else "pe"
-                side = data.get(side_key) if isinstance(data, dict) else None
-                if not isinstance(side, dict):
-                    print(f"No {opt_type} payload for {a} to {b}, {strike}")
-                    continue
-                frame = _response_to_frame(side)
-                if frame.empty:
-                    continue
-                frame["option_type"] = opt_type
-                frame["expiry_flag"] = expiry_flag
-                frame["expiry_code"] = code
-                frame["strike_offset"] = offset
-                out = DATA_ROOT / "options" / expiry_flag.lower() / f"expiry_{code}" / opt_type.lower() / f"{strike.replace('+','p').replace('-','m')}_{interval}m.parquet"
-                total_rows = _save_merge(frame, out)
-                print(f"Options {a} to {b}: {opt_type} {strike}, {len(frame):,} candles")
-                time.sleep(0.12)
+            for opt_type in ("CALL", "PUT"):
+                for offset in range(-max_strike_offset, max_strike_offset + 1):
+                    strike = "ATM" if offset == 0 else f"ATM{offset:+d}"
+                    body = client.rolling_options(
+                        from_s, to_s, opt_type, strike, expiry_flag, code, interval,
+                    )
+                    data = body.get("data", {}) if isinstance(body, dict) else {}
+                    side_key = "ce" if opt_type == "CALL" else "pe"
+                    side = data.get(side_key) if isinstance(data, dict) else None
+                    if not isinstance(side, dict):
+                        print(f"No {opt_type} payload for {a} to {b}, {strike}, expiry code {code}")
+                        continue
+                    frame = _response_to_frame(side)
+                    if frame.empty:
+                        continue
+                    frame["option_type"] = opt_type
+                    frame["expiry_flag"] = expiry_flag
+                    frame["expiry_code"] = code
+                    frame["strike_offset"] = offset
+                    out = (
+                        DATA_ROOT / "options" / expiry_flag.lower()
+                        / f"expiry_{code}" / opt_type.lower()
+                        / f"{strike.replace('+', 'p').replace('-', 'm')}_{interval}m.parquet"
+                    )
+                    _save_merge(frame, out)
+                    total_rows += len(frame)
+                    print(
+                        f"Options {a} to {b}: {opt_type} {strike}, "
+                        f"expiry code {code}, {len(frame):,} candles"
+                    )
+                    time.sleep(0.12)
     return total_rows
 
 
@@ -137,6 +144,7 @@ def download_active_future(
     end_inclusive: date, interval: int = 1,
 ):
     """Download an ACTIVE FUTIDX contract only; expired intraday futures are unsupported."""
+    start = effective_five_year_start(start)
     end_exclusive = end_inclusive + timedelta(days=1)
     total = 0
     for a, b in date_chunks(start, end_exclusive, 90):
