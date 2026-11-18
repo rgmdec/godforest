@@ -16,6 +16,19 @@ DATA_ROOT = ROOT / "data" / "dhan"
 IST = "Asia/Kolkata"
 
 
+def effective_five_year_start(requested: date) -> date:
+    today = date.today()
+    try:
+        cutoff = today.replace(year=today.year - 5)
+    except ValueError:
+        cutoff = today.replace(year=today.year - 5, day=28)
+    if requested < cutoff:
+        print(f"NOTE: Dhan minute/rolling-options retention is five years. "
+              f"Clamping requested start {requested} to {cutoff}.")
+        return cutoff
+    return requested
+
+
 def date_chunks(start: date, end_exclusive: date, days: int):
     cursor = start
     while cursor < end_exclusive:
@@ -60,6 +73,8 @@ def _save_merge(frame: pd.DataFrame, path: Path) -> int:
 
 
 def download_spot(client: DhanClient, start: date, end_inclusive: date, interval: int = 1):
+    start = effective_five_year_start(start)
+    start = effective_five_year_start(start)
     end_exclusive = end_inclusive + timedelta(days=1)
     total = 0
     for a, b in date_chunks(start, end_exclusive, 90):
@@ -81,18 +96,21 @@ def download_spot(client: DhanClient, start: date, end_inclusive: date, interval
 def download_options(
     client: DhanClient, start: date, end_inclusive: date,
     interval: int = 1, expiry_flag: str = "WEEK",
-    expiry_code: int = 1, max_strike_offset: int = 10,
+    expiry_code: int | None = None, max_strike_offset: int = 10,
 ):
+    start = effective_five_year_start(start)
     end_exclusive = end_inclusive + timedelta(days=1)
     total_rows = 0
+    expiry_codes = (expiry_code,) if expiry_code is not None else (0, 1, 2)
     for a, b in date_chunks(start, end_exclusive, 30):
         from_s, to_s = a.isoformat(), b.isoformat()  # API end date is non-inclusive
-        for opt_type in ("CALL", "PUT"):
+        for code in expiry_codes:
+          for opt_type in ("CALL", "PUT"):
             for offset in range(-max_strike_offset, max_strike_offset + 1):
                 strike = "ATM" if offset == 0 else f"ATM{offset:+d}"
                 body = client.rolling_options(
                     from_s, to_s, opt_type, strike, expiry_flag,
-                    expiry_code, interval,
+                    code, interval,
                 )
                 data = body.get("data", {}) if isinstance(body, dict) else {}
                 side_key = "ce" if opt_type == "CALL" else "pe"
@@ -105,9 +123,9 @@ def download_options(
                     continue
                 frame["option_type"] = opt_type
                 frame["expiry_flag"] = expiry_flag
-                frame["expiry_code"] = expiry_code
+                frame["expiry_code"] = code
                 frame["strike_offset"] = offset
-                out = DATA_ROOT / "options" / expiry_flag.lower() / f"expiry_{expiry_code}" / opt_type.lower() / f"{strike.replace('+','p').replace('-','m')}_{interval}m.parquet"
+                out = DATA_ROOT / "options" / expiry_flag.lower() / f"expiry_{code}" / opt_type.lower() / f"{strike.replace('+','p').replace('-','m')}_{interval}m.parquet"
                 total_rows = _save_merge(frame, out)
                 print(f"Options {a} to {b}: {opt_type} {strike}, {len(frame):,} candles")
                 time.sleep(0.12)
