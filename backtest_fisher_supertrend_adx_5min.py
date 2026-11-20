@@ -231,17 +231,33 @@ def run_backtest(underlying_1m, bars, options, args):
         # Evaluate an open position at each completed underlying 5-minute bar.
         if active is not None:
             side = active["side"]
+            # Check the underlying stop on every 1-minute candle since option entry.
+            stop_window = one[(one.index >= active["entry_time"]) & (one.index <= ts)]
+            stop_hit = False
+            stop_ts = None
+            if side == "CE":
+                hit_rows = stop_window[stop_window["low"] <= active["underlying_stop"]]
+            else:
+                hit_rows = stop_window[stop_window["high"] >= active["underlying_stop"]]
+            if not hit_rows.empty:
+                stop_hit = True
+                stop_ts = hit_rows.index[0]
+
             reversed_trend = (b["st_dir"] < 0) if side == "CE" else (b["st_dir"] > 0)
             st_change = abs(b["supertrend"] - prev["supertrend"])
             flat = st_change <= max(abs(b["close"]) * args.flat_st_pct / 100.0, args.flat_st_points)
-            if reversed_trend or flat:
+            exit_reason = "UNDERLYING_SIGNAL_CANDLE_SL" if stop_hit else (
+                "SUPERTREND_REVERSAL" if reversed_trend else ("SUPERTREND_FLAT" if flat else None)
+            )
+            if exit_reason:
+                exit_after = stop_ts if stop_hit else ts
                 exit_rows = options[(options["instrument_key"] == active["instrument_key"]) &
-                                    (options["timestamp"] >= ts)]
+                                    (options["timestamp"] >= exit_after)]
                 if not exit_rows.empty:
                     ex = exit_rows.iloc[0]
                     active["exit_time"] = ex["timestamp"]
                     active["exit_price"] = float(ex["open"])
-                    active["exit_reason"] = "SUPERTREND_REVERSAL" if reversed_trend else "SUPERTREND_FLAT"
+                    active["exit_reason"] = exit_reason
                     active["pnl_points"] = active["exit_price"] - active["entry_price"]
                     active["pnl_pct"] = active["pnl_points"] / active["entry_price"] * 100
                     trades.append(active)
